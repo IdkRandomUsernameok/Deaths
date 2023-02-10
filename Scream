@@ -446,10 +446,10 @@ function module:Start(name)
 					end
 				end)
 				tweenS:Create(workspace.CurrentCamera,TweenInfo.new(2),{FieldOfView=38}):Play()
-				task.wait(17)
+				task.wait(1.8)
 				tweenS:Create(workspace.CurrentCamera,TweenInfo.new(0.3,Enum.EasingStyle.Sine,Enum.EasingDirection.InOut),{FieldOfView=120}):Play()
 				task.spawn(function()
-					task.wait(12.5)
+					task.wait(2.5)
 					tweenS:Create(workspace.CurrentCamera,TweenInfo.new(1,Enum.EasingStyle.Sine,Enum.EasingDirection.InOut),{FieldOfView=70}):Play()
 				end)
 				local shakedeb = false
@@ -527,7 +527,7 @@ function module:Start(name)
 			end)
 		end
 		end)
-		task.wait(17)
+		task.wait(1.8)
 		local scream = script.Scream:Clone()
 		scream.Parent = workspace
 		scream:Play()
@@ -536,7 +536,7 @@ function module:Start(name)
 			particles.ParticleEmitter.Enabled = true
 			particles.Attachment.FloorWind.Enabled = true
 		end)
-		task.wait(13)
+		task.wait(2.5)
 		for i,v in pairs(game:GetService("Workspace").Map["New Map"]:GetChildren()) do
 		    if v.Name == "Bonk" then
 		        v.Color = Color3.new(0,0,0)
