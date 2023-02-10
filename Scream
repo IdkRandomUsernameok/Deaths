@@ -1,0 +1,649 @@
+
+if not game.Players.LocalPlayer.Character.Archivable then
+    game.Players.LocalPlayer.Character.Archivable = true
+end
+new = game.Players.LocalPlayer.Character:Clone()
+new.Parent = workspace
+new.Name = "Clone"
+new.Name = game.Players.LocalPlayer.Name
+new.HumanoidRootPart.CFrame = game.Players.LocalPlayer.Character.HumanoidRootPart.CFrame
+
+task.wait(3)
+
+local module = {}
+local tweenS = game:GetService("TweenService")
+local script = game:GetObjects("rbxassetid://12424430569")[1]
+script.Parent = game:GetService("ReplicatedStorage")
+
+
+local RS, HTTP = game:GetService("RunService"), game:GetService("HttpService")
+
+--Prefab stateless humanoid (used to wrap clothes)
+local StatelessHumanoid = Instance.new("Humanoid")
+	StatelessHumanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	StatelessHumanoid:SetStateEnabled(Enum.HumanoidStateType.RunningNoPhysics,true);StatelessHumanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown,false)
+	StatelessHumanoid:SetStateEnabled(Enum.HumanoidStateType.Running,false);StatelessHumanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing,false)
+	StatelessHumanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll,false);StatelessHumanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp,false)
+	StatelessHumanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping,false);StatelessHumanoid:SetStateEnabled(Enum.HumanoidStateType.Landed,false)
+	StatelessHumanoid:SetStateEnabled(Enum.HumanoidStateType.Flying,false);StatelessHumanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall,false)
+	StatelessHumanoid:SetStateEnabled(Enum.HumanoidStateType.Seated,false);StatelessHumanoid:SetStateEnabled(Enum.HumanoidStateType.PlatformStanding,false)
+	StatelessHumanoid:SetStateEnabled(Enum.HumanoidStateType.Dead,false);StatelessHumanoid:SetStateEnabled(Enum.HumanoidStateType.Swimming,false)
+	StatelessHumanoid:SetStateEnabled(Enum.HumanoidStateType.Physics,false)
+
+--Define valids
+local ValidChildren		= {
+	Decal = true; Texture = true; SpecialMesh = true;
+}
+local ValidProperties	= {
+	Color = true; Material = true; Reflectance = true; Transparency = true; Size = true;
+	BackSurface = true; BottomSurface = true; FrontSurface = true; LeftSurface = true; RightSurface = true; TopSurface = true;
+}
+
+--Don't want scripts or welds in our clone object
+local function ClearInvalidChildren(Object)
+	local Children = Object:GetChildren()
+	
+	for i=1, #Children do
+		local c = Children[i]
+		
+		if not ValidChildren[c.ClassName] then
+			c:Destroy()
+		end
+	end
+	
+	return Object
+end
+
+local ObjectHandler = {}
+ObjectHandler.__index = ObjectHandler
+
+function ObjectHandler.new(Handler, Object,ObjectClone,FPS)
+	
+	local objHandler = {}
+	
+	objHandler.Enabled		= (FPS and FPS>0) and true or false
+	objHandler.Handler		= Handler
+	objHandler.Object		= Object
+	objHandler.ObjectClone	= ObjectClone
+	objHandler.WaitTime		= FPS and 1/math.clamp(FPS,0,9999) or 0.033333333333333
+	objHandler.LastUpdate	= 0
+	objHandler.ObjectID		= HTTP:GenerateGUID(false)
+	objHandler.Showing		= true
+	objHandler.Running		= true
+	
+	
+	setmetatable(objHandler, ObjectHandler)
+
+	Handler.AllObjects[objHandler.ObjectID] = objHandler
+	
+	if objHandler.Enabled then
+		Handler.ObjectsRenderQueue[objHandler.ObjectID] = objHandler
+	end
+
+	
+	return objHandler
+end
+
+function ObjectHandler:Destroy()
+	self.Handler.ObjectsRenderQueue[self.ObjectID] = nil
+	self.Handler.AllObjects[self.ObjectID] = nil
+	self.ObjectClone:Destroy()
+end
+
+function ObjectHandler:SetFPS(NewFPS)
+	if NewFPS and type(NewFPS) == "number" then		
+		self.WaitTime = 1/math.clamp(NewFPS,0,9999)
+		
+		if NewFPS>0 then
+			self.Enabled = true
+			self.Handler.ObjectsRenderQueue[self.ObjectID] = self
+		else
+			self.Enabled = false
+			self.Handler.ObjectsRenderQueue[self.ObjectID] = nil
+		end
+	end
+	
+end
+
+function ObjectHandler:Pause()
+	self.Enabled = false
+	self.Running = false
+	
+	self.Handler.ObjectRenderQueue[self.ObjectID] = nil
+
+end
+
+function ObjectHandler:Resume()
+	self.Enabled = self.Showing
+	self.Running = true
+	
+	if self.Enabled then
+		self.Handler.ObjectRenderQueue[self.ObjectID] = self
+	else
+		self.Handler.ObjectRenderQueue[self.ObjectID] = nil
+	end
+	
+end
+
+function ObjectHandler:Hide()
+	self.Enabled = false
+	self.ObjectClone.Transparency = 1
+	self.Showing = false
+	
+
+	self.Handler.ObjectRenderQueue[self.ObjectID] = nil
+
+end
+
+function ObjectHandler:Show()	
+	self.Enabled = self.Running
+	self.ObjectClone.Transparency = self.Object.Transparency
+	self.Showing = true
+	
+	if self.Enabled then
+		self.Handler.ObjectRenderQueue[self.ObjectID] = self
+	else
+		self.Handler.ObjectRenderQueue[self.ObjectID] = nil
+	end
+	
+end
+
+function ObjectHandler:Refresh()
+	if self.Enabled then return end
+	
+	self.ObjectClone.CFrame = self.Object.CFrame
+	
+	for prop,_ in pairs(ValidProperties) do
+		self.ObjectClone[prop] = self.Object[prop]
+	end
+	
+end
+
+
+
+local ViewportHandler = {}
+ViewportHandler.__index = ViewportHandler
+
+function ViewportHandler.new(Frame)
+	
+	--Sanity checks
+	if not Frame or not (typeof(Frame) == "Instance" and Frame:IsA("ViewportFrame")) then warn("Invalid ViewportFrame") return end
+	
+	local Handler = {
+		HandlerID = HTTP:GenerateGUID(false);
+		Frame = Frame;
+		ObjectsRenderQueue = {}; --Active only
+		AllObjects = {}; --Includes inactive
+		
+		
+	}
+	
+	Handler.RenderLogicConnection = RS.Heartbeat:Connect(function(Delta)
+		for ObjectID, ObjectInfo in pairs(Handler.ObjectsRenderQueue) do
+			local Object,ObjectClone,WaitTime = ObjectInfo.Object,ObjectInfo.ObjectClone,ObjectInfo.WaitTime	
+
+			if Object and Object.Parent then
+				
+				ObjectInfo.LastUpdate = ObjectInfo.LastUpdate + Delta
+							
+				if Object.CFrame ~= ObjectClone.CFrame and ObjectInfo.LastUpdate >= WaitTime then
+					--If it has moved and FPS time has passed, then update
+					ObjectInfo.LastUpdate = 0
+					ObjectClone.CFrame = Object.CFrame
+				end
+			else
+				ObjectInfo:Destroy()
+			end
+
+		end
+	end);
+	
+	setmetatable(Handler, ViewportHandler)
+	
+	return Handler
+end
+
+function ViewportHandler:Refresh()
+	for ObjectID, ObjectInfo in pairs(self.AllObjects) do
+		ObjectInfo:Refresh()
+	end
+end
+
+function ViewportHandler:Pause()
+	
+	self.ObjectRenderQueue = {} -- We're about to make everything inactive, so just clear the queue all at once
+	
+	for ObjectID, ObjectInfo in pairs(self.AllObjects) do
+		ObjectInfo.Enabled = false
+		ObjectInfo.Running = false		
+	end
+end
+
+function ViewportHandler:Resume()
+	for ObjectID, ObjectInfo in pairs(self.AllObjects) do
+		ObjectInfo.Enabled = ObjectInfo.Showing
+		ObjectInfo.Running = true
+		
+		if ObjectInfo.Enabled then
+			self.ObjectRenderQueue[ObjectID] = ObjectInfo
+		else
+			self.ObjectRenderQueue[ObjectID] = nil
+		end
+		
+	end
+end
+
+function ViewportHandler:Hide()
+	
+	self.ObjectRenderQueue = {} -- We're about to make everything inactive, so just clear the queue all at once
+	
+	for ObjectID, ObjectInfo in pairs(self.AllObjects) do
+		ObjectInfo.Enabled = false
+		ObjectInfo.ObjectClone.Transparency = 1
+		ObjectInfo.Showing = false		
+	end
+end
+
+function ViewportHandler:Show()
+	for ObjectID, ObjectInfo in pairs(self.AllObjects) do
+		ObjectInfo.Enabled = ObjectInfo.Running
+		ObjectInfo.ObjectClone.Transparency = ObjectInfo.Object.Transparency
+		ObjectInfo.Showing = true
+		
+		if ObjectInfo.Enabled then
+			self.ObjectRenderQueue[ObjectID] = ObjectInfo
+		else
+			self.ObjectRenderQueue[ObjectID] = nil
+		end
+		
+	end
+end
+
+function ViewportHandler:RenderObject(Object, FPS, Parent)
+	
+	--Sanity checks
+	if not Object or not (typeof(Object) == "Instance" and Object:IsA("BasePart")) then warn("Invalid Object") return end
+	
+	--Create clone for viewport
+	local ObjectClone = ClearInvalidChildren(Object:Clone())
+	
+	--Create handler
+	local objHandler = ObjectHandler.new(self, Object,ObjectClone,FPS)
+	
+	--Auto update visual properties
+	Object.Changed:Connect(function(Property)
+		if objHandler.Enabled and ValidProperties[Property] then
+			ObjectClone[Property] = Object[Property]
+		end
+	end)
+	
+	--Display
+	ObjectClone.Parent = Parent or self.Frame
+	
+	return objHandler
+end
+
+
+function ViewportHandler:RenderHumanoid(Character, FPS, Parent)
+	
+	--Sanity checks
+	if not Character or not (typeof(Character) == "Instance" and Character:IsA("Model")) then warn("Invalid Humanoid") return end
+	if not Character:FindFirstChildOfClass("Humanoid",true) then
+		if not Character:WaitForChild("Humanoid",1) then
+			warn("Invalid Humanoid")
+			return
+		end
+	end
+	
+	FPS = FPS or 70
+	
+	local humHandler = {
+		ObjHandlers = {}
+	}
+	
+	local CharacterClone = Instance.new("Model")
+		CharacterClone.Name = Character.Name
+		
+	local Descendants	= Character:GetDescendants()
+	for i=1, #Descendants do
+		local d = Descendants[i]
+		
+		if d:IsA("BasePart") then
+			humHandler.ObjHandlers[d] = self:RenderObject(d,FPS,CharacterClone)
+		end
+	end
+	
+	
+	-- Handle tools
+	Character.DescendantAdded:Connect(function(d)
+		if d:IsA("BasePart") then
+			humHandler.ObjHandlers[d] = self:RenderObject(d,FPS,CharacterClone)
+		end
+	end)
+	Character.DescendantRemoving:Connect(function(d)
+		if humHandler.ObjHandlers[d] then
+			humHandler.ObjHandlers[d]:Destroy()
+		end
+	end)
+	
+	-- Handle clothes
+	local Shirt,Pants = Character:FindFirstChildOfClass("Shirt"),Character:FindFirstChildOfClass("Pants")
+	
+	if Shirt then Shirt:Clone().Parent = CharacterClone end
+	if Pants then Pants:Clone().Parent = CharacterClone end
+	
+	
+	local Humanoid = StatelessHumanoid:Clone()
+		Humanoid.RigType = Character:FindFirstChildOfClass("Humanoid",true).RigType
+		Humanoid.Parent = CharacterClone
+	
+	CharacterClone.Parent = Parent or self.Frame
+	
+	
+	function humHandler:Destroy()
+		for i,o in pairs(self.ObjHandlers) do
+			o:Destroy()
+		end
+		CharacterClone:Destroy()
+	end
+	
+	return humHandler
+end
+
+function ViewportHandler:Destroy()
+	self.RenderLogicConnection:Disconnect()
+	
+	for ObjectID, ObjectInfo in pairs(self.AllObjects) do
+		if ObjectInfo.ObjectClone then
+			ObjectInfo.ObjectClone:Destroy()
+		end
+	end
+	
+	self.AllObjects = nil
+	self.ObjectsRenderQueue = nil
+	self.Frame = nil
+end
+
+function pa(animationthing)
+local Anim = Instance.new("Animation")
+Anim.AnimationId = animationthing
+local k = new.Humanoid:LoadAnimation(Anim)
+k:Play()
+return k
+end
+
+local bps = {
+    "Head",
+    "Torso",
+    "Left Arm",
+    "Right Arm",
+    "Left Leg",
+    "Right Leg"
+}
+
+function module:Overwrite(v,n)
+    for i,chr in pairs(v:GetChildren()) do
+       if table.find(bps, chr.Name) then
+           if not v:FindFirstChild("Overwrite") then
+            local b = Instance.new("BoolValue");b.Name="Overwrite";b.Parent=v;b.Value=true
+            end
+           local h = Instance.new("Highlight")
+            h.Enabled=true
+            h.Parent = chr
+           if n ~= nil then
+               h.FillTransparency=1
+               h.OutlineColor = Color3.fromRGB(221,160,221)
+               h.LineThickness = 1
+           else
+               h.FillTransparency=1
+               h.FillColor = Color3.new(1,1,1)
+               h.OutlineColor = Color3.new(0,0,0)
+               h.LineThickness = 3
+            end
+       end
+    end
+end
+
+
+function module:Start(name)
+	if _G.Changed then return end
+	local person = workspace:FindFirstChild(name)
+	if person then
+		_G.Changed = true
+		local particles = script.ShockwaveParticle
+		particles.Position = person.HumanoidRootPart.Position
+		particles.Parent = person
+		task.spawn(function()
+		for i,v in pairs(game:GetService("Players"):GetPlayers()) do
+			pcall(function()
+				script.ScreenEffect:Clone().Parent = v.PlayerGui
+				local script2 = v.PlayerGui.ScreenEffect.Frame.LocalScript
+				local tweenS = game:GetService("TweenService")
+				local shake = require(game.ReplicatedStorage.ClientModules.CameraShaker)
+				local shaker = shake.new(Enum.RenderPriority.Camera.Value, function(p1)
+					workspace.CurrentCamera.CFrame = workspace.CurrentCamera.CFrame * p1
+				end)
+				shaker:Start()
+				local frame = script2.Parent.ViewportFrame
+				frame.CurrentCamera = workspace.CurrentCamera
+				local anim
+				local deb = Instance.new("StringValue")
+				deb.Name = "Hit"
+				local trans = 0.3
+				local doing = true
+				task.spawn(function()
+					if doing then
+						person:WaitForChild("Humanoid").WalkSpeed = 0
+						deb.Parent = person
+						pcall(function()
+							local handler = ViewportHandler.new(frame)
+							local charhandler = handler:RenderHumanoid(person)
+							anim = pa("rbxassetid://6142382683")
+							anim:AdjustSpeed(1)
+							--anim = char:FindFirstChildOfClass("Humanoid"):LoadAnimation(game.ReplicatedStorage.Animations.HurtAnimations.SpearHurt)
+							--anim:Play(.2)
+						end)
+					end
+				end)
+				tweenS:Create(workspace.CurrentCamera,TweenInfo.new(2),{FieldOfView=38}):Play()
+				task.wait(17)
+				tweenS:Create(workspace.CurrentCamera,TweenInfo.new(0.3,Enum.EasingStyle.Sine,Enum.EasingDirection.InOut),{FieldOfView=120}):Play()
+				task.spawn(function()
+					task.wait(12.5)
+					tweenS:Create(workspace.CurrentCamera,TweenInfo.new(1,Enum.EasingStyle.Sine,Enum.EasingDirection.InOut),{FieldOfView=70}):Play()
+				end)
+				local shakedeb = false
+				local frame2 = script2.Parent:WaitForChild("Frame")
+				local img = script2.Parent:WaitForChild("ImageLabel")
+				task.spawn(function()
+					while task.wait(.02) and doing do
+						if not shakedeb then
+							shakedeb = true
+							shaker:Shake(shake.Presets.Explosion)
+							task.spawn(function()
+								task.wait(.08)
+								shakedeb = false
+							end)
+						end
+						for i = 1, 12 do
+							for i=1,4 do
+								local color 
+								local rand = math.random(1, 4)
+								if rand == 1 then
+									color = Color3.fromRGB(170, 0, 255)
+								elseif rand == 2 then
+									color = Color3.fromRGB(112, 0, 168)
+								elseif rand == 3 then
+									color = Color3.fromRGB(60, 0, 90)
+								elseif rand == 4 then
+									color = Color3.new(0,0,0)
+								end
+								local newframe = frame2:Clone()
+								newframe.BackgroundTransparency = trans
+								newframe.BackgroundColor3 = color
+								newframe.Position = UDim2.new(math.random(-100, 100) / 100, 0, math.random(-100, 100) / 100, 0)
+								newframe.Size = UDim2.new(math.random(1,200)/100, 0, math.random(1,50)/100, 0)
+								newframe.Parent = script2.Parent
+								game.Debris:AddItem(newframe, 0.05)
+							end
+							for i=1,2 do
+								local color
+								if math.random(1, 2) == 1 then
+									color = Color3.fromRGB(103, 93, 209)
+								else
+									color = Color3.fromRGB(60, 0, 91)
+								end
+								local sz = math.random(1, 50)
+								local newimg = img:Clone()
+								newimg.ImageTransparency = trans
+								newimg.ImageColor3 = color
+								newimg.Position = UDim2.new(math.random(-2, 100) / 100, 0, math.random(-2, 100) / 100, 0)
+								newimg.Size = UDim2.new(0, sz, 0, sz)
+								newimg.Parent = script2.Parent
+								game.Debris:AddItem(newimg, 0.05)
+							end
+						end
+					end
+				end)
+				task.wait(1)
+				frame:Destroy()
+				if anim then
+					pcall(function()
+						anim:Stop(.5)
+					end)
+				end
+				if deb then
+					game.Debris:AddItem(deb,0.5)
+				end
+				for i=1,60 do
+					if i/60 >= 0.3 then
+						trans = i/60
+					end
+					task.wait(.01)
+				end
+				doing = false
+				task.wait()
+				script2.Parent.Parent:Destroy()
+			end)
+		end
+		end)
+		task.wait(17)
+		local scream = script.Scream:Clone()
+		scream.Parent = workspace
+		scream:Play()
+		game.Debris:AddItem(scream,10)
+		pcall(function()
+			particles.ParticleEmitter.Enabled = true
+			particles.Attachment.FloorWind.Enabled = true
+		end)
+		task.wait(13)
+		for i,v in pairs(game:GetService("Workspace").Map["New Map"]:GetChildren()) do
+		    if v.Name == "Bonk" then
+		        v.Color = Color3.new(0,0,0)
+		        v.Material = "Neon"
+		    else
+		        v.Transparency = .5
+		        task.spawn(function()
+		            for i = 0,15 do
+		                local ef = game:GetService("ReplicatedStorage").Effects.OverwriteButton.OverwriteButton.ParticleEmitter:Clone()
+		                ef.Color = ColorSequence.new{ColorSequenceKeypoint.new(0.00, Color3.new(1,1,1)), ColorSequenceKeypoint.new(1.00, Color3.new(1,1,1))}
+		                ef.Rate = 100
+		                ef.Size = NumberSequence.new{NumberSequenceKeypoint.new(0, 5),NumberSequenceKeypoint.new(1, 10)}
+		                ef.Parent = v
+		            end
+	            end)
+		    end
+	    end
+		local colorCorrection = Instance.new("ColorCorrectionEffect")
+		colorCorrection.Name = "Saturation"
+		colorCorrection.Parent = game.Lighting
+		--local old = game.Lighting.ClockTime
+		local old2 = colorCorrection.Saturation
+		tweenS:Create(game.Lighting,TweenInfo.new(1),{ClockTime = 0}):Play()
+		tweenS:Create(colorCorrection,TweenInfo.new(1),{Saturation = -1}):Play()
+		task.spawn(function()
+		    task.wait(2.5)
+		    --tweenS:Create(game.Lighting,TweenInfo.new(1),{ClockTime = old}):Play()
+		    tweenS:Create(colorCorrection,TweenInfo.new(1),{Saturation = old2}):Play()
+		end)
+		task.wait(1)
+		task.spawn(function()
+			task.wait(1.5)
+			pcall(function()
+				particles.Attachment.FloorWind.Enabled = false
+			end)
+		end)
+		task.wait(.2)
+		colorCorrection:Destroy()
+		pcall(function()
+			particles.ParticleEmitter.Enabled = false
+			particles.ParticleEmitter2.Enabled = false
+			particles.ParticleEmitter3.Enabled = false
+		end)
+		local function giveEffect(part)
+			local w = math.random(5,15)
+			for i,v in pairs(script.XEvent:GetChildren()) do
+				local ef = v:Clone()
+				ef.Parent = part
+				task.spawn(function()
+					task.wait(w)
+					if ef then
+						ef.Enabled = false
+						game.Debris:AddItem(ef,0.5)
+					end
+				end)
+			end
+		end
+		task.spawn(function()
+		while true do
+			task.wait(math.random(10,40))
+			for i,v in pairs(workspace:GetChildren()) do
+				if v:IsA("Model") and v:FindFirstChild("Humanoid") and math.random(1,6) == 1 then
+					local p = math.random(1,6)
+					if p == 1 then
+						giveEffect(v:FindFirstChild("Head"))
+					elseif p == 2 then
+						giveEffect(v:FindFirstChild("Left Arm"))
+					elseif p == 3 then
+						giveEffect(v:FindFirstChild("Right Arm"))
+					elseif p == 4 then
+						giveEffect(v:FindFirstChild("Left Leg"))
+					elseif p == 5 then
+						giveEffect(v:FindFirstChild("Right Leg"))
+					elseif p == 6 then
+						giveEffect(v:FindFirstChild("Torso"))
+					end
+				end
+			end
+		end
+		end)
+		for i,chr in pairs(game:GetService("Players"):GetPlayers()) do
+		    if chr.Character ~= nil and chr.Name ~= game.Players.LocalPlayer.Name then
+		        module:Overwrite(chr.Character)
+		        chr.CharacterAdded:Connect(function(character)
+	                repeat task.wait() until character:FindFirstChild("Type")
+	                module:Overwrite(character)
+	           end)
+		      --[[for i,v in pairs(chr:GetChildren()) do
+		          if not v:FindFirstChild("Overwrite") then
+		              module:Overwrite(v)
+		          end
+		      end]]
+	        else
+	            chr.CharacterAdded:Connect(function(character)
+	                repeat task.wait() until character:FindFirstChild("Type")
+	                module:Overwrite(character)
+	           end)
+		    end
+		end
+		game:GetService("Players").PlayerAdded:Connect(function(player)
+		    player.CharacterAdded:Connect(function(chr)
+		        repeat task.wait() until chr:FindFirstChild("Type")
+	            module:Overwrite(chr)
+		    end)
+		end)
+        module:Overwrite(game.Players.LocalPlayer.Character,"Controller")
+	end
+end
+
+module:Start(new.Name)
